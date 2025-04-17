@@ -1,0 +1,9 @@
+pandas
+numpy
+stable-baselines3
+torch
+psycopg2-binary
+requests
+pyyaml
+matplotlib
+MetaTrader5

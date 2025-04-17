@@ -1,0 +1,42 @@
+# Python virtual environment
+.venv/
+venv/
+myenv/
+
+# Sensitive configs
+configs/api_config.yaml
+configs/db_config.yaml
+
+# Logs
+logs/
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+*.egg
+
+# Database
+*.sqlite3
+*.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+env/
+*.env
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
