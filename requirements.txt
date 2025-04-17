@@ -7,3 +7,6 @@ requests
 pyyaml
 matplotlib
 MetaTrader5
+pytz
+gym
+# Install TA -  pip install "C:\Users\mubas\Downloads\ta_lib-0.6.3-cp312-cp312-win_amd64.whl"
