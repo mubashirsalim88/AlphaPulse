@@ -1,8 +1,8 @@
-import gym
-import yaml
+import gymnasium as gym
 import numpy as np
 import pandas as pd
-import psycopg2
+import yaml
+from sqlalchemy import create_engine
 from ta.trend import SMAIndicator
 from ta.momentum import RSIIndicator
 from src.utils.logger import setup_logger
@@ -38,6 +38,7 @@ class TradingEnv(gym.Env):
         
         # Trading state
         self.current_step = 0
+        self.start_step = 0
         self.balance = self.initial_balance
         self.equity = self.initial_balance
         self.position = 0  # 1 (long), -1 (short), 0 (none)
@@ -47,24 +48,22 @@ class TradingEnv(gym.Env):
         self.done = False
         
     def _load_data(self, config_path):
-        """Load EURUSD 15-min data from PostgreSQL."""
+        """Load EURUSD 15-min data from PostgreSQL using SQLAlchemy."""
         try:
             with open(config_path, 'r') as f:
                 config = yaml.safe_load(f)
-            conn = psycopg2.connect(
-                host=config["host"],
-                port=config["port"],
-                database=config["database"],
-                user=config["user"],
-                password=config["password"]
+            connection_string = (
+                f"postgresql+psycopg2://{config['user']}:{config['password']}@"
+                f"{config['host']}:{config['port']}/{config['database']}"
             )
+            engine = create_engine(connection_string)
             query = """
             SELECT timestamp_eet, open, high, low, close, volume
             FROM eurusd_15min
             ORDER BY timestamp_eet;
             """
-            df = pd.read_sql(query, conn)
-            conn.close()
+            df = pd.read_sql(query, engine)
+            engine.dispose()
             self.logger.info(f"Loaded {len(df)} candles from PostgreSQL")
             return df
         except Exception as e:
@@ -84,9 +83,10 @@ class TradingEnv(gym.Env):
             self.logger.error(f"Error adding indicators: {e}")
             return self.df
 
-    def reset(self):
+    def reset(self, **kwargs):
         """Reset environment for a new episode."""
-        self.current_step = np.random.randint(0, len(self.df) - self.episode_length)
+        self.start_step = np.random.randint(0, len(self.df) - self.episode_length)
+        self.current_step = self.start_step
         self.balance = self.initial_balance
         self.equity = self.initial_balance
         self.position = 0
@@ -95,7 +95,7 @@ class TradingEnv(gym.Env):
         self.max_equity = self.initial_balance
         self.done = False
         self.logger.info(f"Reset episode at step {self.current_step}")
-        return self._get_obs()
+        return self._get_obs(), {}
 
     def _get_obs(self):
         """Get current observation."""
@@ -113,12 +113,13 @@ class TradingEnv(gym.Env):
     def step(self, action):
         """Execute one step in the environment."""
         if self.done:
-            return self._get_obs(), 0, True, {}
+            return self._get_obs(), 0, True, False, {}
 
         self.current_step += 1
         current_price = self.df.iloc[self.current_step]["close"]
         reward = 0
         info = {}
+        truncated = False
 
         # Update position and equity
         if self.position != 0:
@@ -153,6 +154,18 @@ class TradingEnv(gym.Env):
         if self.position != 0:
             price_diff = (current_price - self.entry_price) * (1 if self.position == 1 else -1)
             reward = price_diff * self.lot_size * 100000  # Profit in USD
+            # Penalize overbought/oversold RSI
+            rsi = self.df.iloc[self.current_step]["rsi_14"]
+            if rsi > 70 and self.position == 1:  # Overbought, long
+                reward -= 50
+            elif rsi < 30 and self.position == -1:  # Oversold, short
+                reward -= 50
+            # Reward trend alignment
+            sma = self.df.iloc[self.current_step]["sma_20"]
+            if current_price > sma and self.position == 1:  # Bullish, long
+                reward += 10
+            elif current_price < sma and self.position == -1:  # Bearish, short
+                reward += 10
 
         # Check drawdown limits
         if daily_drawdown > self.daily_drawdown_limit:
@@ -172,11 +185,12 @@ class TradingEnv(gym.Env):
             self.logger.info(f"Profit target reached: {profit*100:.2f}%")
 
         # Check episode end
-        if self.current_step >= len(self.df) - 1 or self.current_step >= self.current_step + self.episode_length:
+        if self.current_step >= self.start_step + self.episode_length or self.current_step >= len(self.df) - 1:
             self.done = True
+            truncated = True
             self.logger.info("Episode ended")
 
-        return self._get_obs(), reward, self.done, info
+        return self._get_obs(), reward, self.done, truncated, info
 
     def render(self):
         """Render current state (for debugging)."""
@@ -189,9 +203,11 @@ class TradingEnv(gym.Env):
 
 if __name__ == "__main__":
     env = TradingEnv()
-    obs = env.reset()
+    obs, _ = env.reset()
     done = False
     while not done:
         action = env.action_space.sample()  # Random action for testing
-        obs, reward, done, info = env.step(action)
+        obs, reward, done, truncated, info = env.step(action)
         env.render()
+        if truncated:
+            break

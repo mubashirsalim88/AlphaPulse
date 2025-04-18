@@ -1,6 +1,6 @@
 pandas
 numpy
-stable-baselines3
+stable-baselines3[extra]
 torch
 psycopg2-binary
 requests
@@ -8,5 +8,8 @@ pyyaml
 matplotlib
 MetaTrader5
 pytz
-gym
-# Install TA -  pip install "C:\Users\mubas\Downloads\ta_lib-0.6.3-cp312-cp312-win_amd64.whl"
+gymnasium
+ta
+sqlalchemy
+tensorboard
+scikit-learn
